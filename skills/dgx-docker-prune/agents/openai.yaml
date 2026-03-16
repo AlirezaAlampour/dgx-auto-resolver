@@ -1,0 +1,4 @@
+interface:
+  display_name: "DGX Docker Prune"
+  short_description: "Prune Docker builder cache safely"
+  default_prompt: "Use $dgx-docker-prune to free Docker disk space by pruning only builder cache, without touching protected host-mounted data."

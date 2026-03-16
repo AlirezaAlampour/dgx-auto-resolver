@@ -1,0 +1,4 @@
+interface:
+  display_name: "DGX Auto Resolver"
+  short_description: "Fix DGX container imports safely"
+  default_prompt: "Use $dgx-auto-resolver to fix a Dockerized Python app that crashes on missing imports without disturbing the DGX PyTorch stack."

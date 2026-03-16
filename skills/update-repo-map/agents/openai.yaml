@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update Repo Map"
+  short_description: "Refresh high-level ARCHITECTURE.md"
+  default_prompt: "Use $update-repo-map to refresh the repository's high-level ARCHITECTURE.md only after a material architecture change, and never treat it as ground truth."

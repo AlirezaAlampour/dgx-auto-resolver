@@ -1,103 +1,121 @@
 # dgx-auto-resolver
 
-`dgx-auto-resolver` is a small Python utility for AI environments where the GPU software stack is already correct, but the application still crashes on missing Python imports.
+`dgx-auto-resolver` is the canonical home for two related pieces of DGX workflow tooling:
 
-It is designed for systems like NVIDIA DGX Spark, DGX Station, and vendor-tuned CUDA containers where reinstalling or upgrading `torch` and `torchvision` can easily destabilize a working setup.
+- the resolver that repairs missing Python imports without replacing a vendor-tuned accelerator stack
+- the reusable custom Codex skills that add guardrails for DGX, ARM64 UMA, and Docker-heavy workflows
 
-## Why this exists
+This repository is meant for DGX Spark, DGX Station, and similar environments where `torch`, `torchvision`, CUDA, and vendor plugins are already correct and should not be casually upgraded during troubleshooting.
 
-Specialized AI hardware images often ship with a carefully matched combination of:
+## Why This Exists
 
-- NVIDIA drivers
-- CUDA libraries
-- PyTorch wheels
-- torchvision builds
-- low-level acceleration plugins
+On DGX-class systems, broad dependency installs can easily destabilize a working container:
 
-In those environments, a normal `pip install -r requirements.txt` can be risky. One unpinned dependency may trigger a surprise upgrade or replacement of the exact PyTorch build that makes the hardware usable.
+- ARM64 and UMA systems have platform-specific constraints
+- vendor images often ship with tightly matched PyTorch and CUDA builds
+- Docker cleanup and logging commands can be safe or destructive depending on how they are used
+- repo maps are useful for orientation, but they must not replace source inspection
 
-`dgx-auto-resolver` takes a narrower, safer approach:
+The resolver and bundled skills turn those lessons into repeatable guardrails.
 
-1. It probes the currently installed `torch` and `torchvision` versions.
-2. It writes those exact versions into `constraints.txt`.
-3. It launches your target Python script.
-4. If startup fails with `ModuleNotFoundError`, it installs only the missing package with `pip install --constraint constraints.txt ...`.
-5. It repeats until the script boots cleanly.
-6. It freezes the resulting environment to `safe_requirements.txt`.
+## Repository Layout
 
-The goal is not to be a full dependency solver. The goal is to preserve a fragile accelerator stack while filling in missing user-space Python packages one import at a time.
+```text
+dgx-auto-resolver/
+  README.md
+  resolve_deps.py
+  resolver/
+    __init__.py
+    resolve_deps.py
+  skills/
+    dgx-auto-resolver/
+    dgx-docker-prune/
+    dgx-uma-memory-check/
+    tail-safe-logs/
+    update-repo-map/
+  docs/
+    skills-overview.md
+```
 
-## Safety model
+`resolver/resolve_deps.py` is the canonical resolver source. The root `resolve_deps.py` file remains as a compatibility entrypoint for existing usage.
 
-- The resolver refuses to auto-install packages that look tied to the GPU stack, such as `torch`, `torchvision`, `torchaudio`, `triton`, `xformers`, `nvidia`, or `cuda`.
-- It stops immediately on errors that are not `ModuleNotFoundError`.
-- It includes a small alias table for common import-name-to-package-name mismatches like `yaml -> PyYAML` and `cv2 -> opencv-python-headless`.
-- It treats a process that stays alive past the startup timeout as a clean boot, stops that probe process, and then freezes the environment snapshot.
+## Resolver
 
-If your application depends on a package with a non-obvious distribution name, extend the `MODULE_TO_PACKAGE` mapping in `resolve_deps.py`.
+The resolver is a narrow repair tool for Dockerized Python applications that fail on missing imports:
 
-## Usage
+1. Probe the current `torch` and `torchvision` versions.
+2. Write protected pins to `constraints.txt`.
+3. Start the target script.
+4. If startup fails with `ModuleNotFoundError`, install only the missing user-space package.
+5. Repeat until the app boots cleanly.
+6. Freeze the final environment to `safe_requirements.txt`.
 
-Run the resolver from the environment you want to repair:
+It refuses to auto-install or replace protected accelerator packages such as `torch`, `torchvision`, `torchaudio`, `triton`, `xformers`, `nvidia*`, or `cuda*`.
+
+### Basic Usage
 
 ```bash
-python resolve_deps.py path/to/app.py
+python resolve_deps.py app.py
 ```
-
-Pass arguments through to the target script:
 
 ```bash
-python resolve_deps.py path/to/app.py -- --model /models/foo --port 8080
+python resolve_deps.py --cwd /workspace app.py -- --host 0.0.0.0 --port 8080
 ```
 
-Useful flags:
-
-- `--boot-timeout 10`: treat the app as healthy if it survives for 10 seconds, then stop the probe process
-- `--cwd /workspace/app`: run the target script from a specific working directory
-- `--constraints constraints.txt`: choose where the protected constraints file is written
-- `--requirements safe_requirements.txt`: choose where the frozen environment snapshot is written
-- `--verbose`: print captured stdout/stderr for retry attempts
-
-By default, `constraints.txt` and `safe_requirements.txt` are written to the current working directory.
-
-## Docker workflow
-
-This tool is especially useful when you start from a known-good NVIDIA base image and want to fill in only the missing Python dependencies.
-
-Example Dockerfile:
-
-```dockerfile
-FROM nvcr.io/nvidia/pytorch:24.02-py3
-
-WORKDIR /workspace
-
-COPY dgx-auto-resolver/ /opt/dgx-auto-resolver/
-COPY app/ /workspace/
-
-RUN python /opt/dgx-auto-resolver/resolve_deps.py \
-    --cwd /workspace \
-    --boot-timeout 8 \
-    app.py
-
-CMD ["python", "app.py"]
-```
-
-Example interactive container workflow:
+You can also call the canonical source directly:
 
 ```bash
-docker run --rm -it --gpus all \
-  -v "$PWD:/workspace" \
-  -w /workspace \
-  nvcr.io/nvidia/pytorch:24.02-py3 \
-  python /workspace/dgx-auto-resolver/resolve_deps.py --boot-timeout 8 app.py
+python resolver/resolve_deps.py app.py
 ```
 
-After a successful run, capture the generated `safe_requirements.txt` and use it as the reproducible snapshot for later image builds or CI jobs.
+## Included Skills
 
-## Outputs
+### Operational Guardrails
 
-- `constraints.txt`: exact `torch` and `torchvision` pins used to protect the accelerator stack during installs
-- `safe_requirements.txt`: `pip freeze --exclude-editable` snapshot after the application boots cleanly
+- `dgx-auto-resolver`: guides safe repair of containerized Python import failures without replacing the DGX GPU stack
+- `dgx-docker-prune`: prunes Docker builder cache without touching volumes or protected host-mounted data
+- `dgx-uma-memory-check`: blocks heavy work on UMA systems when `MemAvailable` is below the required threshold
+- `tail-safe-logs`: enforces explicit `docker logs --tail` usage to keep troubleshooting bounded
+
+### Repo And Documentation Helpers
+
+- `update-repo-map`: maintains a short `ARCHITECTURE.md` only as a high-level orientation aid; it is not ground truth and should only be refreshed after material architecture changes
+
+More detail is in [docs/skills-overview.md](/home/xxfactionsxx/dgx-auto-resolver/docs/skills-overview.md).
+
+## Install The Skills Into Codex
+
+Copy the skill folders:
+
+```bash
+mkdir -p "$HOME/.codex/skills"
+for skill in \
+  dgx-auto-resolver \
+  dgx-docker-prune \
+  dgx-uma-memory-check \
+  tail-safe-logs \
+  update-repo-map
+do
+  cp -a "skills/$skill" "$HOME/.codex/skills/"
+done
+```
+
+Or symlink them from this repo:
+
+```bash
+mkdir -p "$HOME/.codex/skills"
+for skill in \
+  dgx-auto-resolver \
+  dgx-docker-prune \
+  dgx-uma-memory-check \
+  tail-safe-logs \
+  update-repo-map
+do
+  ln -sfn "$PWD/skills/$skill" "$HOME/.codex/skills/$skill"
+done
+```
+
+Only the custom DGX workflow skills are vendored here. Built-in skills such as `skill-creator`, `skill-installer`, and `openai-docs` are intentionally excluded.
 
 ## License
 

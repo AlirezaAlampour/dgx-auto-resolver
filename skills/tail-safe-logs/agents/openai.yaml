@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tail Safe Logs"
+  short_description: "Read Docker logs with safe tail limits"
+  default_prompt: "Use $tail-safe-logs to inspect Docker logs safely with required --tail limits."

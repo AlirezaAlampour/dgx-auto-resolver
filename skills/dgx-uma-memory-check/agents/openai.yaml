@@ -1,0 +1,4 @@
+interface:
+  display_name: "DGX UMA Memory Check"
+  short_description: "Guardrail for DGX UMA memory checks"
+  default_prompt: "Use $dgx-uma-memory-check before launching a Docker container or heavy model workload on DGX UMA hardware."
